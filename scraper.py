@@ -1,4 +1,4 @@
-
+import requests
 from bs4 import BeautifulSoup
 import aiohttp
 import asyncio
@@ -36,8 +36,11 @@ async def extract_book_data(session, book_url):
     }
 
 async def download_resource(session, url, folder):
-    filename = url.split("/")[-1]
-    save_path = folder / filename
+    # Construct the save path, replicating directory structure from the URL
+    relative_path = url.split(BASE_URL)[-1]  # Get the part of the URL after the base URL 
+    save_path = folder / relative_path
+    os.makedirs(save_path.parent, exist_ok=True)  # Create any necessary parent directories
+
     async with session.get(url) as response:
         if response.ok:
             with save_path.open("wb") as f:
@@ -64,15 +67,22 @@ async def process_category(session, category_url):
         with open(os.path.join(output_folder, "index.html"), "w") as f:
             f.write(html)
 
+         # Process books on the page (with progress bar)
         for book_element in tqdm(soup.select("article.product_pod h3 a"), desc="Books"):
             relative_book_url = book_element["href"]
             absolute_book_url = urljoin(category_url, relative_book_url)
             book_data = await extract_book_data(session, absolute_book_url) 
 
-            await download_resource(session, book_data["image_url"], images_folder)
+             # Create output folder mirroring the website structure
+            relative_path = category_url.split(BASE_URL)[-1]
+            output_folder = Path("books_data") / relative_path 
+            output_folder.mkdir(parents=True, exist_ok=True)
+
+            # ... your CSS, JS, and image download logic ... 
+            await download_resource(session, book_data["image_url"], output_folder)
             await asyncio.gather(
-                *[download_resource(session, url, css_folder) for url in book_data["css_urls"]],
-                *[download_resource(session, url, js_folder) for url in book_data["js_urls"]]
+                *[download_resource(session, url, output_folder) for url in book_data["css_urls"]],
+                *[download_resource(session, url, output_folder) for url in book_data["js_urls"]]
             )
 
         # Find next page
@@ -84,10 +94,13 @@ async def process_category(session, category_url):
 
 async def scrape_and_download():
     async with aiohttp.ClientSession() as session:
+        # Fetch initial page
         html = await fetch_html(session, BASE_URL)
         soup = BeautifulSoup(html, "html.parser")
-
+        # Gather category links
         categories = [BASE_URL + link["href"] for link in soup.select(".nav-list ul a")]
+
+        # Process categories asynchronously
         await asyncio.gather(*[process_category(session, category_url) for category_url in categories])
 
 
