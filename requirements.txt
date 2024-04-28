@@ -1,0 +1,5 @@
+asynctest
+beautifulsoup4
+aiohttp
+asyncio
+tqdm
